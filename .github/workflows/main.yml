@@ -18,61 +18,61 @@ jobs:
       - name: Log In To AnyDesk
         run: cmd /c show.bat
 
-      - name: Start and Protect Chrome
+      - name: Setup and Start Services
         run: |
-          # Запуск chrome.exe в скрытом режиме
-          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-
-          # Запуск фонового задания для мониторинга chrome.exe
-          Start-Job -ScriptBlock {
-              while ($true) {
-                  Start-Sleep -Seconds 15
-                  $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-                  if (-not $chrome) {
-                      Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-                      Write-Output "chrome.exe был перезапущен."
-                  }
-              }
+          # Установка nssm если еще не установлен
+          if (-Not (Test-Path "C:\nssm\win64\nssm.exe")) {
+              Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile "nssm.zip"
+              Expand-Archive -Path "nssm.zip" -DestinationPath "C:\nssm"
           }
+          
+          # Установка Chrome как службы
+          C:\nssm\win64\nssm.exe install ChromeService "C:\Program Files\Google\Chrome\Application\chrome.exe" "--no-sandbox"
+          Start-Service -Name ChromeService
 
-      - name: Start and Protect RustDesk
-        run: |
-          # Запуск rustdesk.exe в скрытом режиме
-          Start-Process "rustdesk.exe" -WindowStyle Hidden
-
-          # Запуск фонового задания для мониторинга rustdesk.exe
-          Start-Job -ScriptBlock {
-              while ($true) {
-                  Start-Sleep -Seconds 15
-                  $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
-                  if (-not $rustdesk) {
-                      Start-Process "rustdesk.exe" -WindowStyle Hidden
-                      Write-Output "rustdesk.exe был перезапущен."
-                  }
-              }
-          }
+          # Установка RustDesk как службы
+          C:\nssm\win64\nssm.exe install RustDeskService "C:\Path\To\rustdesk.exe"
+          Start-Service -Name RustDeskService
 
       - name: Prevent Termination of Critical Processes
         run: |
           # Создание PowerShell скрипта для дополнительного мониторинга
           $monitorScript = @"
-          while ($true) {
-              Start-Sleep -Seconds 20
-              \$processes = @("chrome", "rustdesk")
-              foreach (\$proc in \$processes) {
-                  if (-not (Get-Process -Name \$proc -ErrorAction SilentlyContinue)) {
-                      Start-Process "\$proc.exe" -WindowStyle Hidden
-                      Write-Output "\$proc.exe был обнаружен как завершённый и перезапущен."
+          $logPath = "C:\ProcessMonitor.log"
+          
+          function Log-Message {
+              param ([string]\$message)
+              \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+              "\$timestamp - \$message" | Out-File -FilePath \$logPath -Append
+          }
+
+          function Send-EmailNotification {
+              param ([string]\$subject, [string]\$body)
+              Send-MailMessage -From "monitor@example.com" -To "admin@example.com" -Subject \$subject -Body \$body -SmtpServer "smtp.example.com"
+          }
+
+          while (\$true) {
+              try {
+                  Start-Sleep -Seconds 20
+                  \$processes = @("chrome", "rustdesk")
+                  foreach (\$proc in \$processes) {
+                      if (-not (Get-Process -Name \$proc -ErrorAction SilentlyContinue)) {
+                          Start-Process "\$proc.exe" -WindowStyle Hidden
+                          Log-Message "\$proc.exe был обнаружен как завершённый и перезапущен."
+                          Send-EmailNotification "\$proc перезапущен" "\$proc.exe был автоматически перезапущен."
+                      }
                   }
+              }
+              catch {
+                  Log-Message "Ошибка в мониторинге процессов: $_"
               }
           }
           "@
-
           # Сохранение скрипта в файл
           $monitorScript | Out-File -FilePath "C:\MonitorProcesses.ps1" -Encoding UTF8
 
-          # Запуск мониторингового скрипта в фоновом режиме
-          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
+          # Настройка задачи в Планировщике задач для запуска мониторингового скрипта при старте системы
+          schtasks.exe /Create /SC ONSTART /TN "ProcessMonitor" /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" /RL HIGHEST /F
 
       - name: Time Counter
         run: python time.py
