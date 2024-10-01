@@ -7,8 +7,8 @@ jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 360  # Установка таймаута на 6 часов (360 минут)
-    
+    timeout-minutes: 360  # Установка таймаута на 6 часов
+
     steps:
       - name: Downloading & Installing Essentials
         run: |
@@ -18,35 +18,61 @@ jobs:
       - name: Log In To AnyDesk
         run: cmd /c show.bat
 
-      - name: Start Chrome and Make It Resilient
+      - name: Start and Protect Chrome
         run: |
+          # Запуск chrome.exe в скрытом режиме
           Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-          
-          # Запуск скрипта-контроллера в фоновом режиме
+
+          # Запуск фонового задания для мониторинга chrome.exe
           Start-Job -ScriptBlock {
               while ($true) {
-                  Start-Sleep -Seconds 10
+                  Start-Sleep -Seconds 15
                   $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
                   if (-not $chrome) {
                       Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+                      Write-Output "chrome.exe был перезапущен."
+                  }
+              }
+          }
+
+      - name: Start and Protect RustDesk
+        run: |
+          # Запуск rustdesk.exe в скрытом режиме
+          Start-Process "rustdesk.exe" -WindowStyle Hidden
+
+          # Запуск фонового задания для мониторинга rustdesk.exe
+          Start-Job -ScriptBlock {
+              while ($true) {
+                  Start-Sleep -Seconds 15
+                  $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
+                  if (-not $rustdesk) {
+                      Start-Process "rustdesk.exe" -WindowStyle Hidden
+                      Write-Output "rustdesk.exe был перезапущен."
                   }
               }
           }
 
       - name: Prevent Termination of Critical Processes
         run: |
-          # Создание службы для защиты процессов
-          $serviceScript = @"
+          # Создание PowerShell скрипта для дополнительного мониторинга
+          $monitorScript = @"
           while ($true) {
-              Start-Sleep -Seconds 5
-              $proc = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-              if (-not $proc) {
-                  Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+              Start-Sleep -Seconds 20
+              \$processes = @("chrome", "rustdesk")
+              foreach (\$proc in \$processes) {
+                  if (-not (Get-Process -Name \$proc -ErrorAction SilentlyContinue)) {
+                      Start-Process "\$proc.exe" -WindowStyle Hidden
+                      Write-Output "\$proc.exe был обнаружен как завершённый и перезапущен."
+                  }
               }
           }
           "@
-          $serviceScript | Out-File -FilePath "protect.ps1" -Encoding UTF8
-          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File protect.ps1" -WindowStyle Hidden
+
+          # Сохранение скрипта в файл
+          $monitorScript | Out-File -FilePath "C:\MonitorProcesses.ps1" -Encoding UTF8
+
+          # Запуск мониторингового скрипта в фоновом режиме
+          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
 
       - name: Time Counter
         run: python time.py
