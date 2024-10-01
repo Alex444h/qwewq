@@ -1,137 +1,84 @@
-# PowerShell Скрипт для защиты процессов RustDesk и Chrome от завершения и сбоев
+name: Windows - RustDesk
 
-# Установка Execution Policy для выполнения скриптов
-Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+on:
+  workflow_dispatch:
 
-# Функция для скачивания файлов
-function Download-File {
-    param (
-        [string]$Uri,
-        [string]$OutFile
-    )
-    try {
-        Write-Output "Скачивание $Uri ..."
-        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
-        Write-Output "Скачивание завершено: $OutFile"
-    }
-    catch {
-        Write-Error "Не удалось скачать файл: $_"
-        exit 1
-    }
-}
+jobs:
+  build:
+    name: Start Building...
+    runs-on: windows-latest
+    timeout-minutes: 360 # Установка таймаута на 6 часов
 
-# Функция для запуска процесса в скрытом режиме
-function Start-HiddenProcess {
-    param (
-        [string]$ExecutablePath,
-        [array]$Arguments = @()
-    )
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $ExecutablePath
-    $psi.Arguments = $Arguments -join " "
-    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
-    $psi.CreateNoWindow = $true
-    [System.Diagnostics.Process]::Start($psi) | Out-Null
-    Write-Output "$ExecutablePath запущен скрытым образом."
-}
+    steps:
+      - name: Downloading & Installing Essentials
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1" -OutFile "Downloads.bat"
+          cmd /c Downloads.bat
 
-# Функция для мониторинга процессов
-function Start-ProcessMonitor {
-    param (
-        [string]$ProcessName,
-        [string]$ExecutablePath,
-        [array]$Arguments = @()
-    )
-    Start-Job -Name "Monitor_$ProcessName" -ScriptBlock {
-        param ($ProcessName, $ExecutablePath, $Arguments)
-        while ($true) {
-            Start-Sleep -Seconds 15
-            $proc = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
-            if (-not $proc) {
-                Write-Output "$ProcessName не найден. Перезапуск..."
-                Start-HiddenProcess -ExecutablePath $ExecutablePath -Arguments $Arguments
-                Write-Output "$ProcessName был перезапущен."
-            }
-        }
-    } -ArgumentList $ProcessName, $ExecutablePath, $Arguments
-    Write-Output "Монитор для $ProcessName запущен."
-}
+      - name: Log In To AnyDesk
+        shell: cmd
+        run: cmd /c show.bat
 
-# Функция для предотвращения завершения процессов
-function Prevent-Termination {
-    $criticalProcesses = @("chrome", "rustdesk")
-    foreach ($proc in $criticalProcesses) {
-        Register-ObjectEvent -InputObject (Get-Process -Name $proc -ErrorAction SilentlyContinue) -EventName Exited -Action {
-            Start-HiddenProcess -ExecutablePath "$($env:ProgramFiles)\$proc\$proc.exe" # Укажите правильный путь
-            Write-Output "$proc.exe завершился и был перезапущен."
-        } | Out-Null
-    }
-    Write-Output "Регистрация событий для предотвращения завершения критических процессов выполнена."
-}
+      - name: Start and Protect Chrome
+        shell: pwsh
+        run: |
+          # Запуск chrome.exe в скрытом режиме
+          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
 
-# Функция для таймера
-function Start-TimeCounter {
-    Start-Job -Name "TimeCounter" -ScriptBlock {
-        $startTime = Get-Date
-        while ($true) {
-            Start-Sleep -Seconds 60
-            $elapsed = (Get-Date) - $startTime
-            Write-Output "Прошло времени: $($elapsed.Hours) часов, $($elapsed.Minutes) минут, $($elapsed.Seconds) секунд."
-        }
-    }
-    Write-Output "Таймер запущен."
-}
+          # Запуск фонового задания для мониторинга chrome.exe
+          Start-Job -ScriptBlock {
+              while ($true) {
+                  Start-Sleep -Seconds 15
+                  $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+                  if (-not $chrome) {
+                      Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+                      Write-Output "chrome.exe был перезапущен."
+                  }
+              }
+          }
 
-# Основная логика скрипта
+      - name: Start and Protect RustDesk
+        shell: pwsh
+        run: |
+          # Запуск rustdesk.exe в скрытом режиме
+          Start-Process "rustdesk.exe" -WindowStyle Hidden
 
-# 1. Скачивание и установка необходимых компонентов
-# Пример: скачивание Downloads.bat, если необходимо
-# Замените URL на актуальный или интегрируйте необходимые команды установки
-$downloadsBatUrl = "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1"
-$downloadsBatPath = "$env:TEMP\Downloads.bat"
-Download-File -Uri $downloadsBatUrl -OutFile $downloadsBatPath
+          # Запуск фонового задания для мониторинга rustdesk.exe
+          Start-Job -ScriptBlock {
+              while ($true) {
+                  Start-Sleep -Seconds 15
+                  $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
+                  if (-not $rustdesk) {
+                      Start-Process "rustdesk.exe" -WindowStyle Hidden
+                      Write-Output "rustdesk.exe был перезапущен."
+                  }
+              }
+          }
 
-# Выполнение Downloads.bat
-Write-Output "Выполнение Downloads.bat ..."
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$downloadsBatPath`"" -WindowStyle Hidden -Wait
-Write-Output "Downloads.bat выполнен."
+      - name: Prevent Termination of Critical Processes
+        shell: pwsh
+        run: |
+          # Создание PowerShell скрипта для дополнительного мониторинга
+          $monitorScript = @"
+          while ($true) {
+              Start-Sleep -Seconds 20
+              $processes = @("chrome", "rustdesk")
+              foreach ($proc in $processes) {
+                  if (-not (Get-Process -Name $proc -ErrorAction SilentlyContinue)) {
+                      Start-Process "$proc.exe" -WindowStyle Hidden
+                      Write-Output "$proc.exe был обнаружен как завершённый и перезапущен."
+                  }
+              }
+          }
+          "@
 
-# 2. Вход в AnyDesk или RustDesk
-# Предполагается, что show.bat выполняет вход. Если это так, интегрируйте команды напрямую
-$showBatPath = "$env:TEMP\show.bat"
-Download-File -Uri "https://example.com/show.bat" -OutFile $showBatPath # Замените на актуальный URL
-Write-Output "Выполнение show.bat ..."
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$showBatPath`"" -WindowStyle Hidden -Wait
-Write-Output "show.bat выполнен."
+          # Сохранение скрипта в файл
+          $monitorScript | Out-File -FilePath "C:\MonitorProcesses.ps1" -Encoding UTF8
 
-# 3. Запуск и мониторинг Chrome
-$chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe" # Укажите правильный путь, если отличается
-if (Test-Path $chromePath) {
-    Start-HiddenProcess -ExecutablePath $chromePath -Arguments @("--no-sandbox")
-    Start-ProcessMonitor -ProcessName "chrome" -ExecutablePath $chromePath -Arguments @("--no-sandbox")
-}
-else {
-    Write-Error "chrome.exe не найден по пути $chromePath"
-}
+          # Запуск мониторингового скрипта в фоновом режиме
+          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
 
-# 4. Запуск и мониторинг RustDesk
-$rustdeskPath = "C:\Program Files\RustDesk\rustdesk.exe" # Укажите правильный путь
-if (Test-Path $rustdeskPath) {
-    Start-HiddenProcess -ExecutablePath $rustdeskPath
-    Start-ProcessMonitor -ProcessName "rustdesk" -ExecutablePath $rustdeskPath
-}
-else {
-    Write-Error "rustdesk.exe не найден по пути $rustdeskPath"
-}
-
-# 5. Предотвращение завершения критических процессов
-Prevent-Termination
-
-# 6. Запуск таймера
-Start-TimeCounter
-
-# Удержание скрипта активным
-Write-Output "Скрипт запущен и работает. Нажмите Ctrl+C для завершения."
-while ($true) {
-    Start-Sleep -Seconds 60
-}
+      - name: Time Counter
+        shell: python
+        run: python time.py
