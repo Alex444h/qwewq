@@ -1,4 +1,4 @@
-name: Windows - Remote Access
+name: Windows - AnyDesk
 
 on:
   workflow_dispatch:
@@ -7,29 +7,16 @@ jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 360  # Установка таймаута на 6 часов
+    timeout-minutes: 360 # Установка таймаута на 6 часов
 
     steps:
       - name: Downloading & Installing Essentials
         run: |
-          # Установка RustDesk
-          Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk/releases/download/1.1.9/rustdesk-1.1.9-windows_x64.exe" -OutFile "rustdesk_installer.exe"
-          Start-Process -FilePath "rustdesk_installer.exe" -ArgumentList "/S" -Wait
-          
-          # Установка AnyDesk
-          Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "AnyDesk.exe"
-          Start-Process -FilePath "AnyDesk.exe" -ArgumentList "--install" -Wait
-          
-          # Установка Google Chrome
-          $ChromeInstaller = "ChromeInstaller.exe"
-          Invoke-WebRequest -Uri "https://dl.google.com/chrome/install/375.126/chrome_installer.exe" -OutFile $ChromeInstaller
-          Start-Process -FilePath $ChromeInstaller -ArgumentList "/silent /install" -Wait
+          Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1" -OutFile "Downloads.bat"
+          cmd /c Downloads.bat
 
-      - name: Log In To RustDesk
-        run: |
-          # Если в вашем файле show.bat содержатся определенные команды, включите их здесь
-          # Например, запуск RustDesk с заданными параметрами
-          Start-Process -FilePath "rustdesk.exe" -WindowStyle Hidden
+      - name: Log In To AnyDesk
+        run: cmd /c show.bat
 
       - name: Start and Protect Chrome
         run: |
@@ -37,7 +24,7 @@ jobs:
           Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
 
           # Запуск фонового задания для мониторинга chrome.exe
-          $ChromeMonitorScript = {
+          Start-Job -ScriptBlock {
               while ($true) {
                   Start-Sleep -Seconds 15
                   $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
@@ -47,61 +34,34 @@ jobs:
                   }
               }
           }
-          Start-Job -ScriptBlock $ChromeMonitorScript
-
-      - name: Start and Protect RustDesk
-        run: |
-          # Запуск rustdesk.exe в скрытом режиме
-          Start-Process "rustdesk.exe" -WindowStyle Hidden
-
-          # Запуск фонового задания для мониторинга rustdesk.exe
-          $RustDeskMonitorScript = {
-              while ($true) {
-                  Start-Sleep -Seconds 15
-                  $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
-                  if (-not $rustdesk) {
-                      Start-Process "rustdesk.exe" -WindowStyle Hidden
-                      Write-Output "rustdesk.exe был перезапущен."
-                  }
-              }
-          }
-          Start-Job -ScriptBlock $RustDeskMonitorScript
 
       - name: Start and Protect AnyDesk
         run: |
-          # Запуск AnyDesk в скрытом режиме
-          Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
+          # Запуск anydesk.exe в скрытом режиме
+          Start-Process "anydesk.exe" -WindowStyle Hidden
 
-          # Запуск фонового задания для мониторинга AnyDesk
-          $AnyDeskMonitorScript = {
+          # Запуск фонового задания для мониторинга anydesk.exe
+          Start-Job -ScriptBlock {
               while ($true) {
                   Start-Sleep -Seconds 15
-                  $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+                  $anydesk = Get-Process -Name "anydesk" -ErrorAction SilentlyContinue
                   if (-not $anydesk) {
-                      Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
-                      Write-Output "AnyDesk.exe был перезапущен."
+                      Start-Process "anydesk.exe" -WindowStyle Hidden
+                      Write-Output "anydesk.exe был перезапущен."
                   }
               }
           }
-          Start-Job -ScriptBlock $AnyDeskMonitorScript
 
       - name: Prevent Termination of Critical Processes
         run: |
-          # Создание PowerShell скрипта для мониторинга процессов
+          # Создание PowerShell скрипта для дополнительного мониторинга
           $monitorScript = @"
           while ($true) {
               Start-Sleep -Seconds 20
-              \$processes = @("chrome", "rustdesk", "AnyDesk")
+              \$processes = @("chrome", "anydesk")
               foreach (\$proc in \$processes) {
                   if (-not (Get-Process -Name \$proc -ErrorAction SilentlyContinue)) {
-                      # Запуск процесса по его имени
-                      if (\$proc -eq "AnyDesk") {
-                          Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
-                      } elseif (\$proc -eq "rustdesk") {
-                          Start-Process "rustdesk.exe" -WindowStyle Hidden
-                      } elseif (\$proc -eq "chrome") {
-                          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-                      }
+                      Start-Process "\$proc.exe" -WindowStyle Hidden
                       Write-Output "\$proc.exe был обнаружен как завершённый и перезапущен."
                   }
               }
@@ -115,13 +75,4 @@ jobs:
           Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
 
       - name: Time Counter
-        run: |
-          # Простой счетчик времени на PowerShell
-          $timeScript = @"
-          while (\$true) {
-              Start-Sleep -Seconds 3600
-              Write-Output "Прошел еще один час."
-          }
-          "@
-          $timeScript | Out-File -FilePath "C:\TimeCounter.ps1" -Encoding UTF8
-          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\TimeCounter.ps1" -WindowStyle Hidden
+        run: python time.py
