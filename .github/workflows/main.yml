@@ -88,7 +88,4 @@ jobs:
       - name: Keep Workflow Running
         shell: pwsh
         run: |
-          Write-Output "Скрипт запущен и работает. Нажмите Ctrl+C для завершения."
-          while ($true) {
-              Start-Sleep -Seconds 60
-          }
+          Write-Output "Скрипт запущен и работает до завершения работы GitHub Actions."
