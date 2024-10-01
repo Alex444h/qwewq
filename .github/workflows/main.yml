@@ -1,4 +1,4 @@
-name: Windows - RustDesk
+name: Windows - AnyDesk
 
 on:
   workflow_dispatch:
@@ -16,48 +16,35 @@ jobs:
       - name: Downloading & Installing Essentials
         shell: pwsh
         run: |
+          # Скачивание Downloads.bat
           Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1" -OutFile "Downloads.bat"
-          cmd /c Downloads.bat
+          # Выполнение Downloads.bat
+          Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$PWD\Downloads.bat`"" -WindowStyle Hidden -Wait
+          Write-Output "Downloads.bat выполнен успешно."
 
       - name: Log In To AnyDesk
         shell: cmd
         run: cmd /c show.bat
 
-      - name: Start and Protect Chrome
+      - name: Start and Protect AnyDesk
         shell: pwsh
         run: |
-          # Запуск chrome.exe в скрытом режиме
-          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+          # Запуск AnyDesk.exe в скрытом режиме
+          Start-Process "C:\Program Files\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
 
-          # Запуск фонового задания для мониторинга chrome.exe
-          Start-Job -ScriptBlock {
+          # Запуск фонового задания для мониторинга AnyDesk.exe
+          Start-Job -Name "Monitor_AnyDesk" -ScriptBlock {
               while ($true) {
                   Start-Sleep -Seconds 15
-                  $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-                  if (-not $chrome) {
-                      Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-                      Write-Output "chrome.exe был перезапущен."
+                  $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+                  if (-not $anydesk) {
+                      Write-Output "AnyDesk.exe не найден. Перезапуск..."
+                      Start-Process "C:\Program Files\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
+                      Write-Output "AnyDesk.exe был перезапущен."
                   }
               }
           }
-
-      - name: Start and Protect RustDesk
-        shell: pwsh
-        run: |
-          # Запуск rustdesk.exe в скрытом режиме
-          Start-Process "rustdesk.exe" -WindowStyle Hidden
-
-          # Запуск фонового задания для мониторинга rustdesk.exe
-          Start-Job -ScriptBlock {
-              while ($true) {
-                  Start-Sleep -Seconds 15
-                  $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
-                  if (-not $rustdesk) {
-                      Start-Process "rustdesk.exe" -WindowStyle Hidden
-                      Write-Output "rustdesk.exe был перезапущен."
-                  }
-              }
-          }
+          Write-Output "AnyDesk запущен и мониторинг начат."
 
       - name: Prevent Termination of Critical Processes
         shell: pwsh
@@ -66,11 +53,12 @@ jobs:
           $monitorScript = @"
           while ($true) {
               Start-Sleep -Seconds 20
-              $processes = @("chrome", "rustdesk")
+              $processes = @("AnyDesk")
               foreach ($proc in $processes) {
                   if (-not (Get-Process -Name $proc -ErrorAction SilentlyContinue)) {
-                      Start-Process "$proc.exe" -WindowStyle Hidden
-                      Write-Output "$proc.exe был обнаружен как завершённый и перезапущен."
+                      Write-Output "$proc.exe был обнаружен как завершённый. Перезапуск..."
+                      Start-Process "C:\Program Files\AnyDesk\$proc.exe" -WindowStyle Hidden
+                      Write-Output "$proc.exe был перезапущен."
                   }
               }
           }
@@ -81,6 +69,26 @@ jobs:
 
           # Запуск мониторингового скрипта в фоновом режиме
           Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
+          Write-Output "Дополнительный мониторинг процессов запущен."
 
       - name: Time Counter
-        run: python time.py
+        shell: pwsh
+        run: |
+          # Запуск таймера в фоне
+          Start-Job -Name "TimeCounter" -ScriptBlock {
+              $startTime = Get-Date
+              while ($true) {
+                  Start-Sleep -Seconds 60
+                  $elapsed = (Get-Date) - $startTime
+                  Write-Output "Прошло времени: $($elapsed.Hours) часов, $($elapsed.Minutes) минут, $($elapsed.Seconds) секунд."
+              }
+          }
+          Write-Output "Таймер запущен."
+
+      - name: Keep Workflow Running
+        shell: pwsh
+        run: |
+          Write-Output "Скрипт запущен и работает. Нажмите Ctrl+C для завершения."
+          while ($true) {
+              Start-Sleep -Seconds 60
+          }
