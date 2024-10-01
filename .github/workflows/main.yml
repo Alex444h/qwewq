@@ -1,4 +1,4 @@
-name: Windows - AnyDesk and RustDesk
+name: Windows - RDP
 
 on:
   workflow_dispatch:
@@ -7,100 +7,127 @@ jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 360 # Установка таймаута на 6 часов
+    timeout-minutes: 360
 
     steps:
-    
-      - name: Downloading & Installing Essentials
-        run: |
-          Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1" -OutFile "Downloads.bat"
-          cmd /c Downloads.bat
+    - name: Downloading & Installing Essentials
+      run: |
+        # Устанавливаем Chocolatey (менеджер пакетов)
+        Set-ExecutionPolicy Bypass -Scope Process -Force;
+        [System.Net.ServicePointManager]::SecurityProtocol = 'Tls12,Tls11,Tls';
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 
-      - name: Download and Install AnyDesk
-        run: |
-          # Скачивание установщика AnyDesk
-          Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile "AnyDesk.exe"
-          # Установка AnyDesk в тихом режиме
-          Start-Process -FilePath "AnyDesk.exe" -ArgumentList "/install /silent /norestart" -Wait
-          # Удаление установочного файла после установки
-          Remove-Item "AnyDesk.exe"
+        # Устанавливаем Google Chrome
+        choco install googlechrome -y
 
-      - name: Log In To AnyDesk
-        run: cmd /c show_anydesk.bat
-        # Предполагается, что show_anydesk.bat содержит необходимые команды для запуска и настройки AnyDesk
+        # Устанавливаем AnyDesk
+        choco install anydesk -y
 
-      - name: Start and Protect Chrome
-        run: |
-          # Запуск chrome.exe в скрытом режиме
-          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-          
-          # Запуск фонового задания для мониторинга chrome.exe
-          Start-Job -ScriptBlock {
-            while ($true) {
-              Start-Sleep -Seconds 15
-              $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-              if (-not $chrome) {
-                Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
-                Write-Output "chrome.exe был перезапущен."
-              }
-            }
-          }
+        # Устанавливаем RustDesk
+        choco install rustdesk -y
 
-      - name: Start and Protect RustDesk
-        run: |
-          # Запуск rustdesk.exe в скрытом режиме
-          Start-Process "rustdesk.exe" -WindowStyle Hidden
-          
-          # Запуск фонового задания для мониторинга rustdesk.exe
-          Start-Job -ScriptBlock {
-            while ($true) {
-              Start-Sleep -Seconds 15
-              $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
-              if (-not $rustdesk) {
-                Start-Process "rustdesk.exe" -WindowStyle Hidden
-                Write-Output "rustdesk.exe был перезапущен."
-              }
-            }
-          }
+    - name: Start and Protect Chrome
+      run: |
+        # Запуск chrome.exe в скрытом режиме
+        Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
 
-      - name: Start and Protect AnyDesk
-        run: |
-          # Запуск AnyDesk.exe в скрытом режиме
-          Start-Process "AnyDesk.exe" -WindowStyle Hidden
-          
-          # Запуск фонового задания для мониторинга AnyDesk.exe
-          Start-Job -ScriptBlock {
-            while ($true) {
-              Start-Sleep -Seconds 15
-              $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
-              if (-not $anydesk) {
-                Start-Process "AnyDesk.exe" -WindowStyle Hidden
-                Write-Output "AnyDesk.exe был перезапущен."
-              }
-            }
-          }
-
-      - name: Prevent Termination of Critical Processes
-        run: |
-          # Создание PowerShell скрипта для дополнительного мониторинга
-          $monitorScript = @"
+        # Запуск фонового задания для мониторинга chrome.exe
+        Start-Job -ScriptBlock {
           while ($true) {
-            Start-Sleep -Seconds 20
-            $processes = @("chrome", "rustdesk", "AnyDesk")
-            foreach ($proc in $processes) {
-              if (-not (Get-Process -Name $proc -ErrorAction SilentlyContinue)) {
-                Start-Process "$proc.exe" -WindowStyle Hidden
-                Write-Output "$proc.exe был обнаружен как завершённый и перезапущен."
-              }
+            Start-Sleep -Seconds 15
+            $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+            if (-not $chrome) {
+              Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+              Write-Output "chrome.exe был перезапущен."
             }
           }
-          "@
-          
-          # Сохранение скрипта в файл
-          $monitorScript | Out-File -FilePath "C:\MonitorProcesses.ps1" -Encoding UTF8
-          
-          # Запуск мониторингового скрипта в фоновом режиме
-          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
+        }
 
-      - name: Time Counter
-        run: python time.py
+    - name: Start and Protect AnyDesk
+      run: |
+        # Запуск AnyDesk в скрытом режиме
+        Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
+
+        # Запуск фонового задания для мониторинга AnyDesk
+        Start-Job -ScriptBlock {
+          while ($true) {
+            Start-Sleep -Seconds 15
+            $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+            if (-not $anydesk) {
+              Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
+              Write-Output "AnyDesk был перезапущен."
+            }
+          }
+        }
+
+    - name: Start and Protect RustDesk
+      run: |
+        # Запуск RustDesk в скрытом режиме
+        Start-Process "C:\Program Files\RustDesk\rustdesk.exe" -WindowStyle Hidden
+
+        # Запуск фонового задания для мониторинга RustDesk
+        Start-Job -ScriptBlock {
+          while ($true) {
+            Start-Sleep -Seconds 15
+            $rustdesk = Get-Process -Name "rustdesk" -ErrorAction SilentlyContinue
+            if (-not $rustdesk) {
+              Start-Process "C:\Program Files\RustDesk\rustdesk.exe" -WindowStyle Hidden
+              Write-Output "rustdesk.exe был перезапущен."
+            }
+          }
+        }
+
+    - name: Prevent Termination of Critical Processes
+      run: |
+        # Создание PowerShell скрипта для дополнительного мониторинга
+        $monitorScript = @"
+while ($true) {
+  Start-Sleep -Seconds 20
+  $processes = @("chrome", "rustdesk", "AnyDesk")
+  foreach ($proc in $processes) {
+    if (-not (Get-Process -Name $proc -ErrorAction SilentlyContinue)) {
+      # Запуск процесса в зависимости от имени
+      switch ($proc) {
+        "chrome" {
+          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+        }
+        "rustdesk" {
+          Start-Process "C:\Program Files\RustDesk\rustdesk.exe" -WindowStyle Hidden
+        }
+        "AnyDesk" {
+          Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
+        }
+      }
+      Write-Output "$proc.exe был обнаружен как завершённый и перезапущен."
+    }
+  }
+}
+"@
+        # Сохранение скрипта в файл
+        $monitorScript | Out-File -FilePath "C:\MonitorProcesses.ps1" -Encoding UTF8
+
+        # Запуск мониторингового скрипта в фоновом режиме
+        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
+
+    - name: Prevent Windows from Crashing
+      run: |
+        # Создание скрипта для предотвращения вылетов Windows
+        $preventCrashScript = @"
+while ($true) {
+  # Предотвращение сна системы
+  Add-Type -Namespace Win32 -Name Power -MemberDefinition '
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint SetThreadExecutionState(uint esFlags);'
+
+  [Win32.Power]::SetThreadExecutionState(0x80000003)
+  Start-Sleep -Seconds 600
+}
+"@
+        # Сохранение скрипта в файл
+        $preventCrashScript | Out-File -FilePath "C:\PreventCrash.ps1" -Encoding UTF8
+
+        # Запуск скрипта в фоновом режиме
+        Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\PreventCrash.ps1" -WindowStyle Hidden
+
+    - name: Time Counter
+      run: echo "placeholder for time.py script"
