@@ -10,6 +10,9 @@ jobs:
     timeout-minutes: 360 # Установка таймаута на 6 часов
 
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
       - name: Downloading & Installing Essentials
         shell: pwsh
         run: |
@@ -80,5 +83,4 @@ jobs:
           Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File C:\MonitorProcesses.ps1" -WindowStyle Hidden
 
       - name: Time Counter
-        shell: python
         run: python time.py
