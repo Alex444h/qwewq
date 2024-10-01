@@ -15,6 +15,11 @@ jobs:
           Invoke-WebRequest -Uri "https://www.dropbox.com/scl/fi/qdyd4p9t6xoabl95n5o3g/Downloads.bat?rlkey=snr74vv1vr8k5suujugvrhjtm&dl=1" -OutFile "Downloads.bat"
           cmd /c Downloads.bat
 
+      - name: Download and Install AnyDesk
+        run: |
+          Invoke-WebRequest -Uri "https://download.anydesk.com/downloads/AnyDesk.exe" -OutFile "C:\AnyDesk.exe"
+          Start-Process "C:\AnyDesk.exe" -ArgumentList "/install", "/quiet" -Wait
+
       - name: Log In To AnyDesk
         run: cmd /c show.bat
 
@@ -38,16 +43,16 @@ jobs:
       - name: Start and Protect AnyDesk
         run: |
           # Запуск anydesk.exe в скрытом режиме
-          Start-Process "anydesk.exe" -WindowStyle Hidden
+          Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
 
           # Запуск фонового задания для мониторинга anydesk.exe
           Start-Job -ScriptBlock {
               while ($true) {
                   Start-Sleep -Seconds 15
-                  $anydesk = Get-Process -Name "anydesk" -ErrorAction SilentlyContinue
+                  $anydesk = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
                   if (-not $anydesk) {
-                      Start-Process "anydesk.exe" -WindowStyle Hidden
-                      Write-Output "anydesk.exe был перезапущен."
+                      Start-Process "C:\Program Files (x86)\AnyDesk\AnyDesk.exe" -WindowStyle Hidden
+                      Write-Output "AnyDesk.exe был перезапущен."
                   }
               }
           }
@@ -58,7 +63,7 @@ jobs:
           $monitorScript = @"
           while ($true) {
               Start-Sleep -Seconds 20
-              \$processes = @("chrome", "anydesk")
+              \$processes = @("chrome", "AnyDesk")
               foreach (\$proc in \$processes) {
                   if (-not (Get-Process -Name \$proc -ErrorAction SilentlyContinue)) {
                       Start-Process "\$proc.exe" -WindowStyle Hidden
