@@ -7,7 +7,7 @@ jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 9999
+    timeout-minutes: 360  # Установка таймаута на 6 часов (360 минут)
     
     steps:
       - name: Downloading & Installing Essentials
@@ -17,6 +17,36 @@ jobs:
 
       - name: Log In To AnyDesk
         run: cmd /c show.bat
+
+      - name: Start Chrome and Make It Resilient
+        run: |
+          Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+          
+          # Запуск скрипта-контроллера в фоновом режиме
+          Start-Job -ScriptBlock {
+              while ($true) {
+                  Start-Sleep -Seconds 10
+                  $chrome = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+                  if (-not $chrome) {
+                      Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+                  }
+              }
+          }
+
+      - name: Prevent Termination of Critical Processes
+        run: |
+          # Создание службы для защиты процессов
+          $serviceScript = @"
+          while ($true) {
+              Start-Sleep -Seconds 5
+              $proc = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+              if (-not $proc) {
+                  Start-Process "chrome.exe" -ArgumentList @("--no-sandbox") -WindowStyle Hidden
+              }
+          }
+          "@
+          $serviceScript | Out-File -FilePath "protect.ps1" -Encoding UTF8
+          Start-Process powershell -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File protect.ps1" -WindowStyle Hidden
 
       - name: Time Counter
         run: python time.py
